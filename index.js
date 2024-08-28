@@ -1,59 +1,93 @@
 import express from "express";
 import bodyParser from "body-parser";
+import pg from "pg";
 
 const app = express();
 const port = 3000;
 
+const db = new pg.Client({
+  user: "postgres",
+  host: "localhost",
+  database: "permalist",
+  password: "Sakshi#07", 
+  port: 5432,
+});
+db.connect();
+
 app.set('view engine', 'ejs');
-
-// Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static('public')); // Serve static files from the 'public' directory
+app.use(express.static('public'));
 
-// Temporary storage for posts
-let posts = [];
-
-// Routes
-app.get('/', (req, res) => {
-  res.render('index', { posts: posts });
-});
-
-app.post('/create-post', (req, res) => {
-  const newPost = {
-    id: posts.length ? posts[posts.length - 1].id + 1 : 1,
-    title: req.body.title,
-    content: req.body.content,
-  };
-  posts.push(newPost);
-  res.redirect('/');
-});
-
-app.get('/edit-post/:id', (req, res) => {
-  const post = posts.find(post => post.id === parseInt(req.params.id));
-  if (!post) {
-    return res.status(404).send('Post not found');
+// Get all posts
+app.get("/", async (req, res) => {
+  try {
+    const result = await db.query("SELECT * FROM posts ORDER BY id DESC");
+    res.render("index.ejs", { posts: result.rows });
+  } catch (err) {
+    console.log(err);
+    res.status(500).send('Internal Server Error');
   }
-  res.render('edit', { post: post });
 });
 
-app.post('/update-post/:id', (req, res) => {
-  const postId = parseInt(req.params.id);
-  const postIndex = posts.findIndex(post => post.id === postId);
-  if (postIndex === -1) {
-    return res.status(404).send('Post not found');
+// Create a new post
+app.post('/create-post', async (req, res) => {
+  const { title, content } = req.body;
+  try {
+    await db.query("INSERT INTO posts (title, content) VALUES ($1, $2)", [title, content]);
+    res.redirect("/");
+  } catch (err) {
+    console.log(err);
+    res.status(500).send('Internal Server Error');
   }
-  posts[postIndex] = {
-    id: postId,
-    title: req.body.title,
-    content: req.body.content,
-  };
-  res.redirect('/');
 });
 
-app.post('/delete-post/:id', (req, res) => {
+// Edit a post (render edit form)
+app.get('/edit-post/:id', async (req, res) => {
   const postId = parseInt(req.params.id);
-  posts = posts.filter(post => post.id !== postId);
-  res.redirect('/');
+  try {
+    const result = await db.query('SELECT * FROM posts WHERE id = $1', [postId]);
+    if (result.rows.length === 0) {
+      return res.status(404).send('Post not found');
+    }
+    res.render("edit.ejs", { post: result.rows[0] });
+  } catch (err) {
+    console.log(err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// Update a post
+app.post('/update-post/:id', async (req, res) => {
+  const postId = parseInt(req.params.id);
+  const { title, content } = req.body;
+  try {
+    const result = await db.query(
+      'UPDATE posts SET title = $1, content = $2 WHERE id = $3',
+      [title, content, postId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).send('Post not found');
+    }
+    res.redirect('/');
+  } catch (err) {
+    console.log(err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// Delete a post
+app.post('/delete-post/:id', async (req, res) => {
+  const postId = parseInt(req.params.id);
+  try {
+    const result = await db.query('DELETE FROM posts WHERE id = $1', [postId]);
+    if (result.rowCount === 0) {
+      return res.status(404).send('Post not found');
+    }
+    res.redirect('/');
+  } catch (err) {
+    console.log(err);
+    res.status(500).send('Internal Server Error');
+  }
 });
 
 app.listen(port, () => {
